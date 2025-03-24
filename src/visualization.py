@@ -1,78 +1,71 @@
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-
-import numpy as np
-import swing_analysis
-import datetime
-
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from PyQt5.QtWidgets import QWidget, QVBoxLayout
+from database import fetch_metric_trend_data
 
 
-def plot_latest_swing_radar():
-    latest_swing = swing_analysis.fetch_latest_swing()
-    prompt = swing_analysis.construct_dynamic_prompt(latest_swing)
-    analysis = swing_analysis.analyze_swing_with_gpt(prompt)
+class RadarChart(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.figure = Figure(figsize=(5, 4))
+        self.canvas = FigureCanvas(self.figure)
 
-    metrics = analysis.get("metrics", {})
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
 
-    # **Ensure all metrics are included, even if "N/A"**
-    all_metrics = [
-        "Club Speed", "Ball Speed", "Spin Rate", "Club Path",
-        "Face Angle", "Attack Angle", "Launch Angle", "Curve", "Backspin"
-    ]
+    def update_chart(self, analysis_json):
+        self.figure.clear()
 
-    labels = []
-    severities = []
+        if not analysis_json:
+            self.canvas.draw()
+            return
 
-    for metric in all_metrics:
-        details = metrics.get(metric, {})  # Get metric details safely
-        severity = details.get("severity", 100)
-        
-        labels.append(metric)
-        severities.append(severity)
+        metrics = list(analysis_json.keys())
+        values = [min(100, max(0, analysis_json[m].get("severity", 0))) for m in metrics]
 
-    # **Ensure Radar Chart is circular**
-    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-    severities += severities[:1]
-    angles += angles[:1]
+        values += values[:1]
+        labels = metrics + [metrics[0]]
 
-    # **Create radar chart**
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    ax.fill(angles, severities, color='orange', alpha=0.6)
-    ax.plot(angles, severities, color='black', linewidth=1.5)
+        angles = [n / float(len(labels)) * 2 * 3.14159 for n in range(len(labels))]
 
-    # **Format Chart**
-    ax.set_ylim(0, 100)
-    ax.set_yticks([20, 40, 60, 80, 100])
-    ax.set_yticklabels(['20', '40', '60', '80', '100'])
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, fontsize=10)
-    plt.title("Swing Performance - Overall Metrics", size=14, pad=20)
+        ax = self.figure.add_subplot(111, polar=True)
+        ax.plot(angles, values, linewidth=2, linestyle='solid', color='black')
+        ax.fill(angles, values, color='orange', alpha=0.5)
+        ax.set_yticks([20, 40, 60, 80, 100])
+        ax.set_ylim(0, 100)
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(metrics)
+        ax.set_title("Swing Performance - Metrics")
 
-    plt.show()
+        self.canvas.draw()
 
-##########Swing trend
-def plot_swing_trend(metric):
-    conn = swing_analysis.connect_db()
-    cursor = conn.cursor()
+class TrendChart(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.figure = Figure(figsize=(6, 3))
+        self.canvas = FigureCanvas(self.figure)
 
-    cursor.execute(f"SELECT timestamp, {metric} FROM swings ORDER BY timestamp ASC")
-    rows = cursor.fetchall()
-    conn.close()
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
 
-    if not rows or len(rows) < 2:
-        print(f"⚠️ Not enough data to show trend for {metric}")
-        return
+    def update_chart(self, metric):
+        self.figure.clear()
 
-    shot_numbers = list(range(1, len(rows) + 1))  # **Generate Shot Indexes (1,2,3,4...)**
-    values = [row[1] for row in rows if row[1] is not None]  # **Ignore None values**
+        timestamps, values = fetch_metric_trend_data(metric)
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(shot_numbers, values, marker='o', linestyle='-', color='b', markersize=8, markerfacecolor='red')
+        if not timestamps or not values:
+            self.canvas.draw()
+            return
 
-    plt.xlabel("Shot Number")
-    plt.ylabel(metric.replace("_", " ").title())
-    plt.title(f"{metric.replace('_', ' ').title()} Over Shots")
+        ax = self.figure.add_subplot(111)
+        ax.plot(timestamps, values, marker='o', linestyle='-', color='blue', markersize=8, markerfacecolor='red')
+        ax.set_title(f"{metric.replace('_', ' ').title()} Over Time")
+        ax.set_xlabel("Date")
+        ax.set_ylabel(metric.replace('_', ' ').title())
+        ax.grid(True)
+        self.figure.autofmt_xdate()
 
-    plt.xticks(shot_numbers)  # Ensure X-axis shows each shot number
-    plt.grid()
-    plt.show()
+        self.canvas.draw()

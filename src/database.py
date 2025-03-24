@@ -55,6 +55,29 @@ def insert_swing_data(club_type, club_speed, ball_speed, spin_rate, club_path, f
     conn.commit()
     conn.close()
 
+def fetch_metric_trend_data(metric_name):
+    """Fetches trend data for a specific metric from the PostgreSQL database."""
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    query = f"""
+        SELECT timestamp, {metric_name}
+        FROM swings
+        WHERE {metric_name} IS NOT NULL
+        ORDER BY timestamp ASC
+    """
+    cursor.execute(query)
+    results = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    # Separate the list of tuples into two lists
+    timestamps = [row[0] for row in results]
+    values = [row[1] for row in results]
+
+    return timestamps, values
+
 
 def get_swing_trends():
     """Retrieve trend analysis for swing metrics, handling None values."""
