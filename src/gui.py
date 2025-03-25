@@ -35,6 +35,7 @@ class SwingAnalysisGUI(QWidget):
         self.scroll_layout.addWidget(self.feedback_display)
 
         self.radar_chart = RadarChart()
+        self.radar_chart.hide()
         self.scroll_layout.addWidget(self.radar_chart)
 
         # Metric Selector and Button
@@ -73,33 +74,54 @@ class SwingAnalysisGUI(QWidget):
         prompt = swing_analysis.construct_dynamic_prompt(swing_data)
         analysis_json = swing_analysis.analyze_swing_with_gpt(prompt)
 
+        def is_meaningful_analysis(data):
+            return isinstance(data, dict) and any(
+                isinstance(v, dict) and v.get("issue") != "N/A"
+                for v in data.values()
+            )
+
+        if not is_meaningful_analysis(analysis_json):
+            print("⚠️ First analysis was empty or unhelpful. Retrying once...")
+            analysis_json = swing_analysis.analyze_swing_with_gpt(prompt)
+
         if "error" in analysis_json:
             self.feedback_display.setText(f"❌ Error: {analysis_json['error']}")
             return
 
         swing_analysis.save_analysis(swing_data["id"], analysis_json)
+        self.handle_analysis_result(analysis_json)
 
-        self.display_analysis(analysis_json)
-        self.radar_chart.update_chart(analysis_json)
 
-    def display_analysis(self, analysis_json):
-        feedback = ""
-        drill_recommendations = []
 
-        for metric, analysis in analysis_json.items():
-            if analysis.get("issue", "N/A") != "N/A":
-                feedback += f"<b>{metric.replace('_', ' ').title()} - Grade: {analysis.get('severity', 'N/A')}</b><br>"
-                feedback += f"<i>Issue:</i> {analysis['issue']}<br>"
-                feedback += f"<i>Description:</i> {analysis['description']}<br>"
-                feedback += f"<i>Drill:</i> {analysis['drill']}<br><br>"
-                drill_recommendations.append(f"- <b>{metric.replace('_', ' ').title()}</b>: {analysis['drill']}")
+    def handle_analysis_result(self, analysis_json):
+        if not analysis_json or "error" in analysis_json:
+            self.feedback_display.setText("⚠️ Error analyzing swing. Please try again.")
+            self.radar_chart.hide()
+            return
 
-        if drill_recommendations:
-            feedback += "<hr><b>🎯 Drill Recommendations:</b><br>" + "<br>".join(drill_recommendations)
+        feedback_entries = []
+        radar_metrics = {}
+        for metric, data in analysis_json.items():
+            if data.get("severity", 0) > 0 and data.get("issue") != "N/A":
+                feedback_entries.append(f"""
+<b>{metric.replace("_", " ").title()} - Grade: {data["severity"]}</b><br>
+<i>Issue:</i> {data["issue"]}<br>
+<i>Description:</i> {data["description"]}<br>
+<i>Drill:</i> {data["drill"]}<br><br>
+""")
+            if data.get("severity") and isinstance(data["severity"], (int, float)):
+                radar_metrics[metric] = data["severity"]
+
+        if not feedback_entries:
+            self.feedback_display.setText("<i>No issues detected.</i>")
         else:
-            feedback = "<i>No issues detected.</i>"
+            self.feedback_display.setText("".join(feedback_entries))
 
-        self.feedback_display.setText(feedback)
+        if radar_metrics:
+            self.radar_chart.update_chart(analysis_json)
+            self.radar_chart.show()
+        else:
+            self.radar_chart.hide()
 
     def update_trend_chart(self):
         selected_metric = self.metric_selector.currentText()

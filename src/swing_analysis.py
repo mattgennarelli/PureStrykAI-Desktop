@@ -55,18 +55,28 @@ def construct_dynamic_prompt(swing_data):
     """
     return prompt
 
-def analyze_swing_with_gpt(prompt):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    content = response.choices[0].message.content.strip()
-    content = re.sub(r'^```json|```$', '', content, flags=re.MULTILINE).strip()
+def parse_gpt_response(content):
+    content = re.sub(r'^```json|```$', '', content.strip(), flags=re.MULTILINE).strip()
     try:
-        return json.loads(content)
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return parsed
+        else:
+            return {"error": "GPT returned non-dict JSON.", "raw_response": content}
     except json.JSONDecodeError:
         return {"error": "Invalid JSON from GPT", "raw_response": content}
+
+def analyze_swing_with_gpt(prompt):
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        content = response.choices[0].message.content
+        return parse_gpt_response(content)
+    except Exception as e:
+        return {"error": str(e)}
 
 def save_analysis(swing_id, analysis_json):
     conn = connect_db()
