@@ -3,6 +3,7 @@ import easyocr
 import numpy as np
 from PIL import Image
 import os
+import re
 
 reader = easyocr.Reader(['en'], gpu=True)
 
@@ -87,12 +88,30 @@ def match_metrics(blocks):
 
     return structured, blocks
 
+def detect_club_name(blocks):
+    club_pattern = re.compile(r'\b(\d{1,2}\s*IRON|PW|GW|SW|LW|DRIVER|HYBRID|WOOD|PUTTER)\b', re.IGNORECASE)
+    for block in blocks:
+        text = block['text']
+        if not isinstance(text, str):
+            continue
+        match = club_pattern.search(text.upper())
+        if match:
+            return match.group(1).upper().replace("  ", " ").replace(" ", " ").title()
+    return None
+
 if __name__ == "__main__":
-    image_path = "screenshots/sample2.png"
+    image_path = "screenshots/sample3.png"
     processed = preprocess_image(image_path)
     ocr_blocks = extract_ocr_blocks(processed)
     structured_metrics, all_blocks = match_metrics(ocr_blocks)
+    club_name = detect_club_name(all_blocks)
 
     print("\n===== STRUCTURED METRICS =====\n")
     for key in structured_metrics:
         print(f"{key:>12}: {structured_metrics[key]}")
+
+    print("\n===== CLUB INFO =====\n")
+    if club_name:
+        print(f"Detected Club: {club_name}")
+    else:
+        print("Detected Club: Unknown")
