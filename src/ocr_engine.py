@@ -4,22 +4,19 @@ import numpy as np
 from PIL import Image
 import os
 import re
+from database import insert_swing_data
 
 reader = easyocr.Reader(['en'], gpu=True)
 
-# Define the scoreboard crop height (bottom % of image)
 CROP_BOTTOM_PERCENTAGE = 0.25
-SCALE_FACTOR = 2.5  # Blow up the cropped region
+SCALE_FACTOR = 2.5
 
 def preprocess_image(image_path):
     image = cv2.imread(image_path)
     height = image.shape[0]
     cropped = image[int(height * (1 - CROP_BOTTOM_PERCENTAGE)):, :]
-
-    # Resize
     cropped = cv2.resize(cropped, (0, 0), fx=SCALE_FACTOR, fy=SCALE_FACTOR, interpolation=cv2.INTER_CUBIC)
 
-    # Convert to LAB color space for CLAHE
     lab = cv2.cvtColor(cropped, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
@@ -27,7 +24,6 @@ def preprocess_image(image_path):
     limg = cv2.merge((cl, a, b))
     enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
-    # Sharpen
     sharpen_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     sharpened = cv2.filter2D(enhanced, -1, sharpen_kernel)
 
@@ -58,7 +54,6 @@ def match_metrics(blocks):
     label_map = {}
     value_map = []
 
-    # Clean and sort text blocks
     for block in blocks:
         raw_text = block['text']
         if not isinstance(raw_text, str):
@@ -79,7 +74,7 @@ def match_metrics(blocks):
             val_x, val_y = val['pos']
             dx = abs(val_x - label_x)
             dy = abs(val_y - label_y)
-            if 15 < dy < 150:  # Value must be below label
+            if 15 < dy < 150:
                 dist = np.hypot(dx, dy)
                 candidates.append((dist, val['text']))
         if candidates:
@@ -88,8 +83,8 @@ def match_metrics(blocks):
 
     return structured, blocks
 
-def detect_club_name(blocks):
-    club_pattern = re.compile(r'\b(\d{1,2}\s*IRON|PW|GW|SW|LW|DRIVER|HYBRID|WOOD|PUTTER)\b', re.IGNORECASE)
+def extract_club_name(blocks):
+    club_pattern = re.compile(r'\b(\d{1,2}\s*IRON|PW|GW|SW|LW|DRIVER|HYBRID|WOOD|WEDGE)\b', re.IGNORECASE)
     for block in blocks:
         text = block['text']
         if not isinstance(text, str):
@@ -104,14 +99,31 @@ if __name__ == "__main__":
     processed = preprocess_image(image_path)
     ocr_blocks = extract_ocr_blocks(processed)
     structured_metrics, all_blocks = match_metrics(ocr_blocks)
-    club_name = detect_club_name(all_blocks)
 
     print("\n===== STRUCTURED METRICS =====\n")
     for key in structured_metrics:
         print(f"{key:>12}: {structured_metrics[key]}")
 
     print("\n===== CLUB INFO =====\n")
-    if club_name:
-        print(f"Detected Club: {club_name}")
-    else:
-        print("Detected Club: Unknown")
+    club_name = extract_club_name(all_blocks)
+    print(f"Clean Club Name: {club_name}")
+
+    # Save to database
+    try:
+        insert_swing_data(
+            club_type=club_name,
+            club_speed=float(structured_metrics.get("CLUB SPEED", 0)),
+            ball_speed=float(structured_metrics.get("BALL SPEED", 0)),
+            spin_rate=float(structured_metrics.get("SPIN RATE", 0)),
+            club_path=float(structured_metrics.get("CLUB PATH", 0)),
+            face_angle=float(structured_metrics.get("FACE ANG", 0)),
+            attack_angle=float(structured_metrics.get("ATTACK ANG", 0)),
+            carry_distance=float(structured_metrics.get("CARRY", 0)),
+            curve=structured_metrics.get("CURVE", ""),
+            smash_factor=float(structured_metrics.get("SMASH FAC", 0)),
+            apex=float(structured_metrics.get("HEIGHT", 0))
+        )
+
+        print("\n✅ Swing data successfully inserted into the database.")
+    except Exception as e:
+        print("\n❌ Failed to insert swing data:", e)

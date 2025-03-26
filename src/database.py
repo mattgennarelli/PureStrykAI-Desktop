@@ -16,23 +16,21 @@ def initialize_db():
     cursor = conn.cursor()
 
     cursor.execute('''
-       CREATE TABLE IF NOT EXISTS swings (
-    id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    club_type TEXT,
-    club_path REAL,
-    face_angle REAL,
-    attack_angle REAL,
-    spin_rate REAL,
-    club_speed REAL,
-    ball_speed REAL,
-    smash_factor REAL,
-    carry_distance REAL,
-    launch_angle REAL,
-    apex REAL,
-    sidespin REAL,
-    curve TEXT
-)
+        CREATE TABLE IF NOT EXISTS swings (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            club_type TEXT,
+            club_path REAL,
+            face_angle REAL,
+            attack_angle REAL,
+            spin_rate REAL,
+            club_speed REAL,
+            ball_speed REAL,
+            smash_factor REAL,
+            carry_distance REAL,
+            curve TEXT,
+            apex REAL
+        )
     ''')
 
     conn.commit()
@@ -40,20 +38,33 @@ def initialize_db():
     conn.close()
     print("✅ Database schema updated successfully.")
 
-def insert_swing_data(club_type, club_speed, ball_speed, spin_rate, club_path, face_angle, attack_angle, carry_distance, curve, smash_factor=None):
-    if not smash_factor:
+def insert_swing_data(club_type, club_speed, ball_speed, spin_rate,
+                      club_path, face_angle, attack_angle, carry_distance,
+                      curve, smash_factor=None, apex=None):
+    if not smash_factor and club_speed > 0:
         smash_factor = round(ball_speed / club_speed, 2)
 
-    conn = sqlite3.connect('data/swing_data.db')
-    cursor = conn.cursor()
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        INSERT INTO swings (club_type, club_speed, ball_speed, spin_rate, club_path, face_angle, attack_angle, smash_factor, carry_distance, curve)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (club_type, club_speed, ball_speed, spin_rate, club_path, face_angle, attack_angle, smash_factor, carry_distance, curve))
+        cursor.execute("""
+            INSERT INTO swings (
+                club_type, club_speed, ball_speed, spin_rate,
+                club_path, face_angle, attack_angle, smash_factor,
+                carry_distance, curve, apex
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            club_type, club_speed, ball_speed, spin_rate,
+            club_path, face_angle, attack_angle, smash_factor,
+            carry_distance, curve, apex
+        ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print("❌ Failed to insert swing data into DB:", e)
 
 def fetch_metric_trend_data(metric_name):
     """Fetches trend data for a specific metric from the PostgreSQL database."""
@@ -72,12 +83,9 @@ def fetch_metric_trend_data(metric_name):
     cursor.close()
     conn.close()
 
-    # Separate the list of tuples into two lists
     timestamps = [row[0] for row in results]
     values = [row[1] for row in results]
-
     return timestamps, values
-
 
 def get_swing_trends():
     """Retrieve trend analysis for swing metrics, handling None values."""
@@ -87,32 +95,31 @@ def get_swing_trends():
     cursor.execute('''
         SELECT 
             COUNT(*) AS total_swings,
-            COALESCE(AVG(club_path), 0) AS avg_club_path,
-            COALESCE(AVG(face_angle), 0) AS avg_face_angle,
-            COALESCE(AVG(backspin), 0) AS avg_backspin,
-            COALESCE(AVG(club_speed), 0) AS avg_club_speed,
-            COALESCE(AVG(distance), 0) AS avg_distance,
-            COALESCE(AVG(ball_speed), 0) AS avg_ball_speed,
-            COALESCE(AVG(apex), 0) AS avg_apex,
-            COALESCE(AVG(launch_angle), 0) AS avg_launch_angle,
-            COALESCE(AVG(sidespin), 0) AS avg_sidespin
+            COALESCE(AVG(club_path), 0),
+            COALESCE(AVG(face_angle), 0),
+            COALESCE(AVG(spin_rate), 0),
+            COALESCE(AVG(club_speed), 0),
+            COALESCE(AVG(carry_distance), 0),
+            COALESCE(AVG(ball_speed), 0),
+            COALESCE(AVG(apex), 0),
+            COALESCE(AVG(attack_angle), 0)
         FROM swings;
     ''')
 
     trends = cursor.fetchone()
+    cursor.close()
     conn.close()
 
     return {
         "Total Swings": trends[0],
         "Avg Club Path": round(trends[1], 2),
         "Avg Face Angle": round(trends[2], 2),
-        "Avg Backspin": round(trends[3], 2),
+        "Avg Spin Rate": round(trends[3], 2),
         "Avg Club Speed": round(trends[4], 2),
-        "Avg Distance": round(trends[5], 2),
+        "Avg Carry Distance": round(trends[5], 2),
         "Avg Ball Speed": round(trends[6], 2),
-        "Avg Apex": round(trends[7], 2),
-        "Avg Launch Angle": round(trends[8], 2),
-        "Avg Sidespin": round(trends[9], 2),
+        "Avg Apex (Height)": round(trends[7], 2),
+        "Avg Attack Angle": round(trends[8], 2)
     }
 
 if __name__ == "__main__":

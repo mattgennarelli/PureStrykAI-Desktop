@@ -22,7 +22,7 @@ def fetch_latest_swing():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, club_type, club_speed, ball_speed, spin_rate, club_path, face_angle,
-               attack_angle, smash_factor, distance, launch_angle, apex, sidespin, curve
+               attack_angle, smash_factor, distance, launch_angle, apex, curve
         FROM swings
         ORDER BY id DESC LIMIT 1
     """)
@@ -31,13 +31,13 @@ def fetch_latest_swing():
 
     if row:
         keys = ["id", "club_type", "club_speed", "ball_speed", "spin_rate", "club_path", "face_angle",
-                "attack_angle", "smash_factor", "distance", "launch_angle", "apex", "sidespin", "curve"]
+                "attack_angle", "smash_factor", "distance", "launch_angle", "apex", "curve"]
         swing_data = dict(zip(keys, row))
         swing_data["carry_distance"] = swing_data.pop("distance")
-        swing_data["backspin"] = swing_data["spin_rate"]
         return swing_data
     else:
         return None
+
 
 def construct_dynamic_prompt(swing_data):
     prompt = f"Analyze this golf swing shot using a {swing_data.get('club_type', 'club')}:\n\n"
