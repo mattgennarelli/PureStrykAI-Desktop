@@ -95,7 +95,7 @@ def extract_club_name(blocks):
     return None
 
 if __name__ == "__main__":
-    image_path = "screenshots/sample3.png"
+    image_path = "screenshots/sample2.png"
     processed = preprocess_image(image_path)
     ocr_blocks = extract_ocr_blocks(processed)
     structured_metrics, all_blocks = match_metrics(ocr_blocks)

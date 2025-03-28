@@ -40,20 +40,32 @@ def fetch_latest_swing():
 
 
 def construct_dynamic_prompt(swing_data):
-    prompt = f"Analyze this golf swing shot using a {swing_data.get('club_type', 'club')}:\n\n"
-    prompt += "Metrics:\n"
+    club = swing_data.get('club_type', 'club')
+    face_angle = swing_data.get("face_angle")
+    print("Face angle raw value:", face_angle)
+
+    prompt = f"""You are a professional golf swing coach analyzing a shot taken with a {club}.
+    The goal is to identify any potential swing flaws based on the player's numbers, compared to what is typical for a well-struck shot using that club.
+    Metrics: """
     for metric, value in swing_data.items():
         if value is not None:
             prompt += f"- {metric.replace('_', ' ').title()}: {value}\n"
+
     prompt += """
-        For each provided metric, respond strictly in JSON with:
-        - "issue": Briefly describe any issue or "N/A".
-        - "severity": Numeric severity rating (100=perfect, 0=critical).
-        - "description": Explain the rating briefly.
-        - "drill": Recommended drill or "N/A".
-        Only analyze provided metrics. Respond strictly in JSON.
+    Instructions:
+    - Use your expertise to determine whether each metric is ideal, borderline, or problematic.
+    - Face angle sign convention: negative = closed (left), positive = open (right).
+    - For irons, attack angle should generally be negative. Positive values indicate incorrect strike mechanics.
+    - Curve values under 10 yards (L or R) are minor and may be acceptable depending on face/path alignment.
+    - Return a JSON object where each metric has:
+        - "issue": what’s wrong, or "N/A"
+        - "severity": 0–100 score where 100 = perfect
+        - "description": brief explanation
+        - "drill": specific drill to improve or "N/A"
+    Only analyze metrics provided. Do NOT add new ones. Reply ONLY in JSON.
     """
     return prompt
+
 
 def parse_gpt_response(content):
     content = re.sub(r'^```json|```$', '', content.strip(), flags=re.MULTILINE).strip()
@@ -69,9 +81,9 @@ def parse_gpt_response(content):
 def analyze_swing_with_gpt(prompt):
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            temperature=1.0
         )
         content = response.choices[0].message.content
         return parse_gpt_response(content)
