@@ -66,26 +66,27 @@ def insert_swing_data(club_type, club_speed, ball_speed, spin_rate,
     except Exception as e:
         print("❌ Failed to insert swing data into DB:", e)
 
-def fetch_metric_trend_data(metric_name):
-    """Fetches trend data for a specific metric from the PostgreSQL database."""
+def fetch_metric_trend_data(metric_name, club_type):
+    """Fetches the last 10 values for a specific metric and club, ordered by swing number (not timestamp)."""
     conn = connect_db()
     cursor = conn.cursor()
 
     query = f"""
-        SELECT timestamp, {metric_name}
+        SELECT {metric_name}
         FROM swings
-        WHERE {metric_name} IS NOT NULL
-        ORDER BY timestamp ASC
+        WHERE club_type = %s AND {metric_name} IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 10
     """
-    cursor.execute(query)
-    results = cursor.fetchall()
+    cursor.execute(query, (club_type,))
+    values = [row[0] for row in cursor.fetchall()][::-1]  # reverse to show oldest first
 
     cursor.close()
     conn.close()
 
-    timestamps = [row[0] for row in results]
-    values = [row[1] for row in results]
-    return timestamps, values
+    swing_numbers = list(range(1, len(values) + 1))
+    return swing_numbers, values
+
 
 def get_swing_trends():
     """Retrieve trend analysis for swing metrics, handling None values."""

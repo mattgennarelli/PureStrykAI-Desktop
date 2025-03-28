@@ -4,6 +4,8 @@ import json
 import re
 from openai import OpenAI
 from dotenv import load_dotenv
+from database import fetch_metric_trend_data
+
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -66,6 +68,24 @@ def construct_dynamic_prompt(swing_data):
     """
     return prompt
 
+def construct_trend_prompt(values, metric, club_type):
+    return f"""
+        You are a golf swing coach reviewing a golfer's last 10 swings using a {club_type}. The metric of focus is {metric.replace('_', ' ')}.
+        Values: {values}
+
+        Evaluate the trend over these swings:
+        - Is the metric improving, getting worse, or inconsistent?
+        - Is the current value near the expected range for a {club_type}?
+        - What could be causing issues based on the pattern?
+        - What drill do you recommend to improve this metric?
+
+        Respond in clear JSON:
+        {{
+        "trend_summary": "...",
+        "diagnosis": "...",
+        "recommendation": "..."
+        }}
+        """
 
 def parse_gpt_response(content):
     content = re.sub(r'^```json|```$', '', content.strip(), flags=re.MULTILINE).strip()
@@ -115,15 +135,54 @@ def get_available_metrics():
     ignore_columns = {"id", "timestamp", "club_type"}
     return [metric for metric in all_metrics if metric not in ignore_columns]
 
-def run_analysis():
-    swing_data = fetch_latest_swing()
+def get_available_clubs():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT club_type FROM swings
+        WHERE club_type IS NOT NULL
+        ORDER BY club_type
+    """)
+    clubs = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return clubs
+
+
+def run_analysis(self):
+    print("🔄 Running swing analysis...")
+
+    swing_data = swing_analysis.fetch_latest_swing()
     if not swing_data:
         print("⚠️ No swing data found.")
+        self._show_message_table("⚠️ No swing data found.")
         return
-    prompt = construct_dynamic_prompt(swing_data)
-    analysis = analyze_swing_with_gpt(prompt)
-    save_analysis(swing_data['id'], analysis)
-    print(json.dumps(analysis, indent=2))
+
+    prompt = swing_analysis.construct_dynamic_prompt(swing_data)
+    print("📤 Prompt sent to GPT:\n", prompt)
+
+    analysis_json = swing_analysis.analyze_swing_with_gpt(prompt)
+    print("📥 Raw GPT response:\n", analysis_json)
+
+    def is_meaningful_analysis(data):
+        return isinstance(data, dict) and any(
+            isinstance(v, dict) and v.get("issue") != "N/A"
+            for v in data.values()
+        )
+
+    if not is_meaningful_analysis(analysis_json):
+        print("⚠️ First analysis was empty or unhelpful. Retrying once...")
+        analysis_json = swing_analysis.analyze_swing_with_gpt(prompt)
+
+    if "error" in analysis_json:
+        print("❌ GPT Error:", analysis_json["error"])
+        self._show_message_table(f"❌ Error: {analysis_json['error']}")
+        return
+
+    swing_analysis.save_analysis(swing_data["id"], analysis_json)
+    print("✅ Saved analysis to DB.")
+    self.display_feedback_table(swing_data, analysis_json)
+
 
 if __name__ == "__main__":
     run_analysis()

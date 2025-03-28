@@ -15,38 +15,29 @@ class SwingAnalysisGUI(QWidget):
         self.setWindowTitle("PureStrykAI Swing Analysis")
         self.setMinimumWidth(1000)
 
-        # Main layout
         self.main_layout = QVBoxLayout(self)
-
-        # Scroll area for entire window content
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
 
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
 
-        # Analyze button
         self.analyze_button = QPushButton("Analyze Latest Swing")
         self.analyze_button.clicked.connect(self.run_analysis)
         self.scroll_layout.addWidget(self.analyze_button)
 
-        # Feedback section title
         self.feedback_label = QLabel("🤖 <b>AI Feedback & Recommendations</b>")
         self.feedback_label.setStyleSheet("font-size: 16px; margin-top: 10px;")
         self.scroll_layout.addWidget(self.feedback_label)
 
-        # Feedback table
         self.feedback_table = QTableWidget()
         self.feedback_table.setColumnCount(5)
         self.feedback_table.setHorizontalHeaderLabels(["Metric", "Value", "Status", "Description", "Drill"])
         self.feedback_table.verticalHeader().setVisible(False)
-
-        # Disable scrollbars on table
         self.feedback_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.feedback_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        # Resize behavior
         self.feedback_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+
         header = self.feedback_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -56,33 +47,54 @@ class SwingAnalysisGUI(QWidget):
 
         self.scroll_layout.addWidget(self.feedback_table)
 
-        # Metric selector + track button
         metric_layout = QHBoxLayout()
-        self.metric_label = QLabel("Select Metric:")
+        self.metric_label = QLabel("Metric:")
         self.metric_selector = QComboBox()
-        self.trend_button = QPushButton("Track Progress")
-        self.trend_button.clicked.connect(self.update_trend_chart)
+        self.club_label = QLabel("Club:")
+        self.club_selector = QComboBox()
+
+        self.trend_button = QPushButton("Track & Analyze Trend")
+        self.trend_button.clicked.connect(self.update_chart_and_analysis)
 
         metric_layout.addWidget(self.metric_label)
         metric_layout.addWidget(self.metric_selector)
+        metric_layout.addWidget(self.club_label)
+        metric_layout.addWidget(self.club_selector)
         metric_layout.addWidget(self.trend_button)
+
         self.scroll_layout.addLayout(metric_layout)
 
-        # Trend chart
         self.trend_chart = TrendChart()
         self.trend_chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.scroll_layout.addWidget(self.trend_chart)
 
-        # Finalize scroll area
+        self.analysis_summary = QLabel()
+        self.analysis_summary.setWordWrap(True)
+        self.analysis_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.scroll_layout.addWidget(self.analysis_summary)
+
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
 
         self.populate_metric_selector()
 
     def populate_metric_selector(self):
-        metrics = swing_analysis.get_available_metrics()
+        all_metrics = swing_analysis.get_available_metrics()
+        latest_swing = swing_analysis.fetch_latest_swing()
+
+        valid_metrics = []
+        if latest_swing:
+            for metric in all_metrics:
+                _, values = swing_analysis.fetch_metric_trend_data(metric, latest_swing['club_type'])
+                if len(values) >= 4:
+                    valid_metrics.append(metric)
+
         self.metric_selector.clear()
-        self.metric_selector.addItems(metrics)
+        self.metric_selector.addItems(valid_metrics)
+
+        clubs = swing_analysis.get_available_clubs()
+        self.club_selector.clear()
+        self.club_selector.addItems(sorted(clubs))
 
     def run_analysis(self):
         swing_data = swing_analysis.fetch_latest_swing()
@@ -100,7 +112,6 @@ class SwingAnalysisGUI(QWidget):
             )
 
         if not is_meaningful_analysis(analysis_json):
-            print("⚠️ First analysis was empty. Retrying...")
             analysis_json = swing_analysis.analyze_swing_with_gpt(prompt)
 
         if "error" in analysis_json:
@@ -109,6 +120,31 @@ class SwingAnalysisGUI(QWidget):
 
         swing_analysis.save_analysis(swing_data["id"], analysis_json)
         self.display_feedback_table(swing_data, analysis_json)
+
+    def update_chart_and_analysis(self):
+        metric = self.metric_selector.currentText()
+        club = self.club_selector.currentText()
+
+        self.trend_chart.update_chart(metric, club)
+        x, y = swing_analysis.fetch_metric_trend_data(metric, club)
+
+        if not y or len(y) < 4:
+            self._show_message_table("❌ Not enough data for trend analysis.")
+            return
+
+        prompt = swing_analysis.construct_trend_prompt(y, metric, club)
+        response = swing_analysis.analyze_swing_with_gpt(prompt)
+
+        if "error" in response:
+            self._show_message_table("❌ " + response["error"])
+            return
+
+        summary = (
+            f"<b>Trend Summary:</b> {response.get('trend_summary', '')}<br>"
+            f"<b>Diagnosis:</b> {response.get('diagnosis', '')}<br>"
+            f"<b>Recommendation:</b> {response.get('recommendation', '')}"
+        )
+        self.analysis_summary.setText(summary)
 
     def display_feedback_table(self, swing_data, analysis_json):
         metrics_data = analysis_json.get("metrics", analysis_json)
@@ -145,10 +181,6 @@ class SwingAnalysisGUI(QWidget):
         for row in range(self.feedback_table.rowCount()):
             total_height += self.feedback_table.rowHeight(row)
         self.feedback_table.setMinimumHeight(total_height)
-
-    def update_trend_chart(self):
-        selected_metric = self.metric_selector.currentText()
-        self.trend_chart.update_chart(selected_metric)
 
     def _text_item(self, text):
         item = QTableWidgetItem(text)
